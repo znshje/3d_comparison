@@ -158,6 +158,11 @@ function SyncCameraFromStore() {
 }
 
 const Scene = ({path, loader}: { path: string, loader: LoaderType }) => {
+    useFrame(({gl, scene, camera}) => {
+        gl.clear(true, true, true)
+        gl.render(scene, camera)
+    })
+
     return <>
         <Lights/>
         <SyncCameraFromStore/>
@@ -233,7 +238,7 @@ const ModelRenderer: React.FC = () => {
                 reject(e)
             }
         })
-    }, [outputDir, outputFormat, outputQuality]);
+    }, [outputDir, outputFormat, outputQuality, outputToWorkdir, workDir]);
 
     const loader = useMemo(() => {
         if (!selectedFile) return undefined;
@@ -350,8 +355,7 @@ const ModelRenderer: React.FC = () => {
                     toneMapping: NeutralToneMapping,
                     alpha: true,
                     preserveDrawingBuffer: true,
-                    outputColorSpace: LinearSRGBColorSpace,
-                    antialias: true
+                    outputColorSpace: LinearSRGBColorSpace
                 }}
                 style={{
                     position: 'fixed',
