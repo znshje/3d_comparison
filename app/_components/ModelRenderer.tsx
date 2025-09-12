@@ -3,7 +3,7 @@
 import {Canvas, useFrame, useThree} from "@react-three/fiber";
 import {useAppDispatch, useAppSelector} from "@/lib/hooks";
 import {RootState} from "@/lib/store";
-import {Suspense, useCallback, useMemo, useRef, useState} from "react";
+import {Suspense, useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {
     BufferGeometry,
     Group,
@@ -19,6 +19,8 @@ import {useDebounceEffect} from "ahooks";
 import {join} from "@tauri-apps/api/path";
 import {disposeObject3D} from "@/app/_lib/disposeObject3D";
 import {updateCamera} from "@/lib/features/camera/cameraSlice";
+import {info} from "@tauri-apps/plugin-log";
+import {subscribe, unsubscribe} from "@/app/_lib/EventEmitter";
 
 type AsciiLoaderType = OBJLoader | XYZLoader
 type BinaryLoaderType = GLTFLoader | STLLoader | PLYLoader
@@ -189,6 +191,7 @@ const ModelRenderer: React.FC = () => {
     const {renderDirection, viewportSize, gap} = useAppSelector((state: RootState) => state.controls.render);
     const {
         outputDir,
+        outputToWorkdir,
         outputFormat,
         outputQuality,
         backgroundTransparent,
@@ -208,14 +211,16 @@ const ModelRenderer: React.FC = () => {
         height: viewportSize.height * (renderDirection === 'vertical' ? selectedCandidates.length : 1) + (renderDirection === 'vertical' ? gap * Math.max(0, selectedCandidates.length - 1) : 0)
     }), [viewportSize, renderDirection, selectedCandidates, gap]);
 
-    const capture = useCallback(async () => {
+    const capture = useCallback(async ({filename}: {
+        filename: string
+    }) => {
         return new Promise<void>((resolve, reject) => {
             try {
                 resultCanvasRef.current.toBlob(
                     async (blob) => {
                         const data = await blob.arrayBuffer();
                         try {
-                            await writeFile("/home/zsj/Documents/tip2024/figures/render/ios/debug.png", new Uint8Array(data));
+                            await writeFile(await join(outputToWorkdir ? workDir : outputDir, filename), new Uint8Array(data));
                         } catch (e) {
                             reject(e)
                         }
@@ -228,7 +233,7 @@ const ModelRenderer: React.FC = () => {
                 reject(e)
             }
         })
-    }, [outputFormat, outputQuality]);
+    }, [outputDir, outputFormat, outputQuality]);
 
     const loader = useMemo(() => {
         if (!selectedFile) return undefined;
@@ -250,6 +255,27 @@ const ModelRenderer: React.FC = () => {
     const scenes = useMemo(() => modelPaths.map((path) => (
         <Scene path={path} loader={loader} key={path} />
     )), [modelPaths, loader])
+
+    useEffect(() => {
+        const captureListener = (msg: {filename: string}) => {
+            info(JSON.stringify(msg))
+            const {filename} = msg
+            capture({filename}).then(() => {
+                postMessage({
+                    type: 'action/capture/complete',
+                    payload: {
+                        filename
+                    }
+                })
+            })
+        }
+
+        subscribe('action/capture', captureListener)
+
+        return () => {
+            unsubscribe('action/capture', captureListener)
+        }
+    }, [capture]);
 
     useDebounceEffect(() => {
         (async () => {

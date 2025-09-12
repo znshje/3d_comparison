@@ -6,8 +6,7 @@ import {Button, Checkbox, Input, InputNumber, Select, Slider, Space, Typography}
 import {setState} from "@/lib/features/controls/controlsSlice";
 import {FolderOpenOutlined, SaveOutlined} from "@ant-design/icons";
 import {open} from "@tauri-apps/plugin-dialog";
-import {writeFile} from "@tauri-apps/plugin-fs";
-import {join} from "@tauri-apps/api/path";
+import {publish} from "@/app/_lib/EventEmitter";
 
 const OutputOptions: React.FC = () => {
     const {workDir, selectedFile} = useAppSelector((state: RootState) => state.controls.files);
@@ -29,8 +28,8 @@ const OutputOptions: React.FC = () => {
         return outputFilenameFormat.replace('%name', modelName).replace('%ext', ext);
     }
 
-    const handleSave = async () => {
-        await writeFile(await join(workDir, formatFilename(selectedFile)), new Uint8Array(), {})
+    const handleSave = () => {
+        publish('action/capture', {filename: formatFilename(selectedFile)})
     }
 
     return (
