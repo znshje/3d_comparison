@@ -199,10 +199,8 @@ const ModelRenderer: React.FC = () => {
         outputToWorkdir,
         outputFormat,
         outputQuality,
-        backgroundTransparent,
-        renderScale
+        backgroundTransparent
     } = useAppSelector((state: RootState) => state.controls.output);
-    const dispatch = useAppDispatch();
     const containerRef = useRef<HTMLDivElement>(null)
 
     const [modelPaths, setModelPaths] = useState<string[]>([])
