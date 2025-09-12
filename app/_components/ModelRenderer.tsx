@@ -327,7 +327,7 @@ const ModelRenderer: React.FC = () => {
             width: canvasSize.width,
             height: canvasSize.height,
             zIndex: -1,
-            // opacity: 0
+            opacity: 0
         }}>
             <div
                 style={{
