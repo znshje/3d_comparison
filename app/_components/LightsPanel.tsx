@@ -321,11 +321,12 @@ const LightsPanel: React.FC = () => {
                             ...defaultLightConfig[key]
                         }
                         if (['directional', 'point', 'spot'].includes(key)) {
-                            (cfg as LightShadow).position = cameraState.position;
-                            const lookAt = cameraState.worldDirection;
+                            (cfg as LightShadow).position = [...cameraState.position];
+                            const lookAt = [...cameraState.worldDirection];
                             for (let i = 0; i < 3; i++) {
-                                (cfg as LightShadow).lookAt[i] = lookAt[i] + (cfg as LightShadow).position[i];
+                                lookAt[i] = lookAt[i] + (cfg as LightShadow).position[i];
                             }
+                            (cfg as LightShadow).lookAt = lookAt as [number, number, number]
                         }
                         dispatch(updateLight(state => {
                             state.lights.push(cfg)
