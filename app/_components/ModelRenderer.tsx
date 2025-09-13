@@ -27,6 +27,8 @@ import {
     LightParams, LightShadow,
     PointLightJSON, RectAreaLightJSON, SpotLightJSON
 } from "@/lib/features/lights/lightsSlice";
+import {Select, Typography} from "antd";
+import {setState} from "@/lib/features/controls/controlsSlice";
 
 type AsciiLoaderType = OBJLoader | XYZLoader
 type BinaryLoaderType = GLTFLoader | STLLoader | PLYLoader
@@ -356,6 +358,8 @@ const CopyCanvas = ({renderCanvas, proxyCanvas, monoCanvas, size: {width, height
     size: { width: number, height: number },
     viewportSize: { width: number, height: number }
 }) => {
+    const {focusedCandidate, gap, renderDirection} = useAppSelector((state: RootState) => state.controls.render);
+
     useFrame(() => {
         if (!proxyCanvas || !renderCanvas || !monoCanvas) return
 
@@ -367,8 +371,23 @@ const CopyCanvas = ({renderCanvas, proxyCanvas, monoCanvas, size: {width, height
 
         const ctxMono = monoCanvas.getContext('2d')
         if (!ctxMono) return
+
+        let sx: number, sy: number
+        if (renderDirection === 'horizontal') {
+            sx = Math.max(0, focusedCandidate * (viewportSize.width + gap))
+            sy = 0
+        } else {
+            sx = 0
+            sy = Math.max(0, focusedCandidate * (viewportSize.height + gap))
+        }
+
         ctxMono.clearRect(0, 0, monoCanvas.width, monoCanvas.height)
-        ctxMono.drawImage(renderCanvas, 0, 0, viewportSize.width, viewportSize.height, 0, 0, monoCanvas.width, monoCanvas.height)
+        ctxMono.drawImage(renderCanvas, sx, sy, viewportSize.width, viewportSize.height, 0, 0, monoCanvas.width, monoCanvas.height)
+
+        const lineWidth = viewportSize.width / 100
+        ctx.lineWidth = lineWidth
+        ctx.strokeStyle = "#db4242"
+        ctx.strokeRect(sx + lineWidth / 2, sy + lineWidth / 2, viewportSize.width - lineWidth, viewportSize.height - lineWidth)
     })
 
     return null
@@ -376,7 +395,7 @@ const CopyCanvas = ({renderCanvas, proxyCanvas, monoCanvas, size: {width, height
 
 const ModelRenderer: React.FC = () => {
     const {workDir, selectedCandidates, selectedFile} = useAppSelector((state: RootState) => state.controls.files);
-    const {renderDirection, viewportSize, gap} = useAppSelector((state: RootState) => state.controls.render);
+    const {renderDirection, viewportSize, gap, focusedCandidate} = useAppSelector((state: RootState) => state.controls.render);
     const {
         outputDir,
         outputToWorkdir,
@@ -442,6 +461,16 @@ const ModelRenderer: React.FC = () => {
         return null
     }, [selectedFile]);
 
+    const dispatch = useAppDispatch();
+
+    const validFocusedCandidate = useMemo(() => {
+        if (selectedCandidates.length > 0) {
+            return Math.max(0, Math.min(selectedCandidates.length - 1, focusedCandidate))
+        } else {
+            return -1
+        }
+    }, [focusedCandidate, selectedCandidates.length])
+
     useEffect(() => {
         const captureListener = (msg: { filename: string }) => {
             const {filename} = msg
@@ -500,8 +529,6 @@ const ModelRenderer: React.FC = () => {
             padding: 16,
             gap: 16
         }}>
-
-        {/*<Button onClick={capture}>截图</Button>*/}
 
         <div style={{
             position: 'fixed',
@@ -566,19 +593,34 @@ const ModelRenderer: React.FC = () => {
             </Canvas>
         </div>
 
-        <canvas ref={resultCanvasRef} width={canvasSize.width} height={canvasSize.height} style={{
-            height: 'auto',
-            maxWidth: '100%',
-            maxHeight: '100%',
-            boxSizing: 'border-box',
-            boxShadow: "0 0 5px 0 #cccccc"
-        }}/>
+        <div>
+            <Typography.Text>输出预览</Typography.Text>
+            <canvas ref={resultCanvasRef} width={canvasSize.width} height={canvasSize.height} style={{
+                height: 'auto',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                boxSizing: 'border-box',
+                boxShadow: "0 0 5px 0 #cccccc"
+            }}/>
+        </div>
 
-        <canvas ref={monoCanvasRef} width={viewportSize.width * renderScale} height={viewportSize.height * renderScale}
-                style={{
-                    flex: 1,
-                    boxShadow: "0 0 5px 0 #cccccc"
-                }}/>
+        <div style={{}}>
+            <div style={{display: 'flex'}}>
+                <Typography.Text style={{flex: 1}}>单视图调整</Typography.Text>
+                <Select variant="filled" options={selectedCandidates.map((candidate, index) => ({
+                    label: candidate,
+                    value: index
+                }))} value={validFocusedCandidate} onChange={(value) => {
+                    dispatch(setState(state => state.render.focusedCandidate = value))
+                }} style={{minWidth: 200}}/>
+            </div>
+            <canvas ref={monoCanvasRef} width={viewportSize.width * renderScale} height={viewportSize.height * renderScale}
+                    style={{
+                        flex: 1,
+                        boxShadow: "0 0 5px 0 #cccccc"
+                    }}
+            />
+        </div>
 
     </div>
 }

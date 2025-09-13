@@ -31,7 +31,8 @@ interface RenderState {
     viewportSize: {
         width: number,
         height: number
-    }
+    },
+    focusedCandidate: number
 }
 
 export interface ControlsState {
@@ -61,7 +62,8 @@ export const initialState: ControlsState = {
         viewportSize: {
             width: 200,
             height: 180
-        }
+        },
+        focusedCandidate: -1
     },
     output: {
         outputDir: '',
