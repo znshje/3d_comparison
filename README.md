@@ -1,7 +1,15 @@
-# Tauri + Vanilla
+# 3D Comparison Maker
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Javascript.
+Compare multiple 3D models at once. Supports PLY, STL, OBJ, XYZ, and GLTF/GLB models.
 
-## Recommended IDE Setup
+> Developed with Tauri + Next.js + three.js
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+![](./doc/demo.png)
+
+### Features
+
+- Customize the rendering effect
+- Render multiple models at once
+- Customize the candidates' rendering order
+- Output Hi-Res images
+
