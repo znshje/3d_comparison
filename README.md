@@ -4,7 +4,11 @@ Compare multiple 3D models at once. Supports PLY, STL, OBJ, XYZ, and GLTF/GLB mo
 
 > Developed with Tauri + Next.js + three.js
 
-![](./doc/demo.png)
+![Software UI](./doc/demo.png)
+
+Prepare the candidate models, and perform the render.
+
+![Render Output](./doc/render.png)
 
 ### Features
 
@@ -12,4 +16,4 @@ Compare multiple 3D models at once. Supports PLY, STL, OBJ, XYZ, and GLTF/GLB mo
 - Render multiple models at once
 - Customize the candidates' rendering order
 - Output Hi-Res images
-
+- Persistence of settings for reproducibility
