@@ -1,6 +1,8 @@
 import {combineReducers, configureStore} from '@reduxjs/toolkit'
 import controlsSliceReducer from "./features/controls/controlsSlice";
 import cameraSliceReducer from "./features/camera/cameraSlice";
+import lightsSliceReducer from "./features/lights/lightsSlice";
+import materialSliceReducer from './features/material/materialSlice'
 import {path} from "@tauri-apps/api";
 import {readTextFile} from "@tauri-apps/plugin-fs";
 import throttle from "lodash.throttle";
@@ -8,12 +10,15 @@ import {join} from "@tauri-apps/api/path";
 
 import {initialState as controlsInitialState} from "./features/controls/controlsSlice";
 import {initialState as cameraInitialState} from "./features/camera/cameraSlice";
+import {initialState as lightsInitialState} from './features/lights/lightsSlice'
+import {initialState as materialInitialState} from './features/material/materialSlice'
+
 import {invoke} from "@tauri-apps/api/core";
 import {error} from "@tauri-apps/plugin-log";
 
 const STATE_FILE = '3d_comparison_state.json'
 // 需要持久化的 slice
-const PERSISTED_KEYS = ["controls", "camera"];
+const PERSISTED_KEYS = ["controls", "camera", "lights", "material"];
 
 function isPlainObject(v) {
     return Object.prototype.toString.call(v) === "[object Object]";
@@ -58,6 +63,12 @@ const migrateState = (state: RootState) => {
     if (state.camera) {
         state.camera = deepMerge(cameraInitialState, state.camera);
     }
+    if (state.lights) {
+        state.lights = deepMerge(lightsInitialState, state.lights);
+    }
+    if (state.material) {
+        state.material = deepMerge(materialInitialState, state.material);
+    }
     return state;
 }
 
@@ -96,6 +107,8 @@ const makeStoreSync = ({preloadedState}) => {
         reducer: combineReducers({
             controls: controlsSliceReducer,
             camera: cameraSliceReducer,
+            lights: lightsSliceReducer,
+            material: materialSliceReducer
         }),
         preloadedState,
         middleware: (getDefaultMiddleware) => getDefaultMiddleware({

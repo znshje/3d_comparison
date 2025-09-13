@@ -9,23 +9,33 @@ import {
     Group,
     LinearSRGBColorSpace,
     NeutralToneMapping,
-    Vector3,
-    OrthographicCamera as OrthographicCameraType, DoubleSide
+    OrthographicCamera as OrthographicCameraType, DoubleSide, Vector3, Object3D, ObjectLoader,
+    Light
 } from "three";
-import {ArcballControls, Html, OrthographicCamera, useProgress, View} from "@react-three/drei";
+import {Html, OrthographicCamera, useProgress, View, ArcballControls} from "@react-three/drei";
 import {readFile, readTextFile, writeFile} from "@tauri-apps/plugin-fs";
-import {GLTFLoader, OBJLoader, STLLoader, PLYLoader, XYZLoader, GLTF} from "three-stdlib";
+import {GLTFLoader, OBJLoader, STLLoader, PLYLoader, XYZLoader, GLTF, ArcballControls as ArcballControlsImpl} from "three-stdlib";
 import {useDebounceEffect} from "ahooks";
 import {join} from "@tauri-apps/api/path";
 import {disposeObject3D} from "@/app/_lib/disposeObject3D";
 import {updateCamera} from "@/lib/features/camera/cameraSlice";
-import {info} from "@tauri-apps/plugin-log";
+import {error, info} from "@tauri-apps/plugin-log";
 import {subscribe, unsubscribe} from "@/app/_lib/EventEmitter";
+import {
+    DirectionalLightJSON,
+    HemisphereLightJSON,
+    LightParams, LightShadow,
+    PointLightJSON, RectAreaLightJSON, SpotLightJSON
+} from "@/lib/features/lights/lightsSlice";
 
 type AsciiLoaderType = OBJLoader | XYZLoader
 type BinaryLoaderType = GLTFLoader | STLLoader | PLYLoader
 type LoaderType = AsciiLoaderType | BinaryLoaderType
-type GeometryLoaderType = STLLoader | PLYLoader
+
+interface ModelCacheItem {
+    model: GLTF | Group | BufferGeometry,
+    path: string
+}
 
 const Loader: React.FC = () => {
     const {progress} = useProgress()
@@ -33,52 +43,88 @@ const Loader: React.FC = () => {
     return <Html center>{progress}% loaded</Html>
 }
 
-const Model: React.FC<{ modelPath: string, loader: LoaderType }> = ({modelPath, loader}) => {
+const Model: React.FC<{
+    index: number,
+    modelPath: string,
+    loader: LoaderType,
+    modelCache: Map<number, ModelCacheItem>
+}> = ({index, modelPath, loader, modelCache}) => {
     const [model, setModel] = useState<GLTF | Group | BufferGeometry>()
+    const objectLoader = useMemo(() => new ObjectLoader(), [])
 
     const loadModel = useCallback(async () => {
         if (!modelPath) return;
+        const cacheItem = modelCache.get(index)
+        if (cacheItem && cacheItem.path === modelPath) {
+            info(`model ${modelPath} already loaded, use cache`)
+            setModel(cacheItem.model)
+            return
+        } else if (cacheItem) {
+            info(`model ${modelPath} dispose cache`)
+            const prev = cacheItem.model
+            if (prev instanceof BufferGeometry) {
+                prev.dispose()
+            } else if (prev instanceof Group) {
+                disposeObject3D(prev)
+            } else {
+                disposeObject3D((prev as GLTF).scene)
+            }
+            modelCache.delete(index)
+        }
 
+        let data: string | Uint8Array
         if (loader instanceof GLTFLoader) {
-            const data = await readFile(modelPath);
-            const model = await loader.parseAsync(data.buffer, '')
+            const model = await loader.parseAsync((await readFile(modelPath)).buffer, '')
             setModel(model)
+            modelCache.set(index, {model, path: modelPath})
+            return
         } else if (loader instanceof OBJLoader) {
-            const data = await readTextFile(modelPath);
-            const model = loader.parse(data)
-            setModel(model)
+            data = await readTextFile(modelPath);
         } else if (loader instanceof XYZLoader) {
-            const data = await readTextFile(modelPath);
-            const model = await new Promise<BufferGeometry>((resolve, reject) => {
-                try {
-                    loader.parse(data, geometry => resolve(geometry))
-                } catch (e) {
-                    reject(e)
+            data = await readTextFile(modelPath);
+        } else {
+            data = await readFile(modelPath);
+        }
+
+        const worker = new Worker(new URL('@/app/_lib/workers/modelParser.worker', import.meta.url));
+        const modelData = await new Promise<GLTF | Group | BufferGeometry>((resolve, reject) => {
+            worker.addEventListener('message', e => {
+                if (e.data.type === 'result') {
+                    resolve(e.data.result);
+                } else if (e.data.type === 'error') {
+                    reject(e.data.error);
                 }
             });
-            setModel(model)
-        } else {
-            const data = await readFile(modelPath);
-            const model = (loader as GeometryLoaderType).parse(data.buffer);
-            setModel(model)
-        }
-    }, [modelPath, loader]);
+            if (data instanceof Uint8Array) {
+                worker.postMessage({
+                    call: 'parseModel',
+                    args: [modelPath, data]
+                }, [data.buffer]);
+            } else {
+                worker.postMessage({
+                    call: 'parseModel',
+                    args: [modelPath, data]
+                });
+            }
+        }).finally(() => {
+            worker.terminate();
+        });
+
+        objectLoader.parseAsync(modelData).then(model => {
+            setModel(model as GLTF | Group | BufferGeometry)
+            modelCache.set(index, {model: model as GLTF | Group | BufferGeometry, path: modelPath})
+            info(`model ${modelPath} stored to cache`)
+        })
+    }, [modelPath, modelCache, index, loader, objectLoader]);
 
     useDebounceEffect(() => {
-        loadModel()
+        try {
+            loadModel()
+        } catch (e) {
+            error(`load model failed: ${e}`)
+            setModel(null)
+        }
         return () => {
-            setModel(prev => {
-                if (!!prev) {
-                    if (prev instanceof BufferGeometry) {
-                        prev.dispose()
-                    } else if (prev instanceof Group) {
-                        disposeObject3D(prev)
-                    } else {
-                        disposeObject3D((prev as GLTF).scene)
-                    }
-                }
-                return null
-            })
         }
     }, [loadModel], {
         wait: 50
@@ -97,46 +143,154 @@ const Model: React.FC<{ modelPath: string, loader: LoaderType }> = ({modelPath, 
     </>
 }
 
+const LightObject = ({light}: { light: LightParams }) => {
+    const lightRef = useRef<Light>(null)
+    const vec3 = useRef(new Vector3())
+
+    useEffect(() => {
+        if (lightRef.current && !light.bindView) {
+            if (['directional', 'spot', 'point'].includes(light.type)) {
+                lightRef.current.position.fromArray((light as LightShadow).position)
+                if (typeof lightRef.current.lookAt === 'function') {
+                    if ((light as LightShadow).lookAt) {
+                        lightRef.current.lookAt((light as LightShadow).lookAt[0], (light as LightShadow).lookAt[1], (light as LightShadow).lookAt[2])
+                    } else {
+                        lightRef.current.lookAt(0, 0, 0)
+                    }
+                }
+            }
+        }
+    }, [light, light.bindView]);
+
+    useFrame(({camera}) => {
+        if (lightRef.current && light.bindView) {
+            lightRef.current.position.copy(camera.position)
+            if (typeof lightRef.current.lookAt === 'function') {
+                camera.getWorldDirection(vec3.current)
+                vec3.current.add(camera.position)
+                lightRef.current.lookAt(vec3.current)
+            }
+        }
+    })
+
+    switch (light.type) {
+        case 'ambient':
+            return <ambientLight ref={lightRef} intensity={light.intensity * Math.PI} color={light.color}
+                                 visible={light.enabled}/>
+        case 'directional':
+            const directional = (light as DirectionalLightJSON)
+            return <directionalLight
+                ref={lightRef}
+                visible={light.enabled}
+                intensity={directional.intensity * Math.PI}
+                color={directional.color}
+                position={directional.position}
+                lookAt={directional.lookAt}
+                castShadow={directional.castShadow}
+            />
+        case 'hemisphere':
+            const hemisphere = (light as HemisphereLightJSON)
+            return <hemisphereLight
+                ref={lightRef}
+                args={[hemisphere.skyColor, hemisphere.groundColor, hemisphere.intensity * Math.PI]}
+                visible={light.enabled}
+            />
+        case 'point':
+            const point = (light as PointLightJSON)
+            return <pointLight
+                ref={lightRef}
+                intensity={point.intensity * Math.PI}
+                position={point.position}
+                color={point.color}
+                distance={point.distance}
+                decay={point.decay}
+                castShadow={point.castShadow}
+                visible={light.enabled}
+            />
+        case 'rectarea':
+            const rectarea = (light as RectAreaLightJSON)
+            return <rectAreaLight
+                ref={lightRef}
+                intensity={rectarea.intensity * Math.PI}
+                color={rectarea.color}
+                width={rectarea.width}
+                height={rectarea.height}
+                visible={light.enabled}
+            />
+        case 'spot':
+            const spot = (light as SpotLightJSON)
+            return <spotLight
+                ref={lightRef}
+                intensity={spot.intensity * Math.PI}
+                position={spot.position}
+                color={spot.color}
+                distance={spot.distance}
+                angle={spot.angle}
+                penumbra={spot.penumbra}
+                castShadow={spot.castShadow}
+                visible={light.enabled}
+            />
+        default:
+            return <></>
+    }
+}
+
 const Lights = () => {
+    const {lights} = useAppSelector((state: RootState) => state.lights)
     return <>
-        <ambientLight intensity={1 * Math.PI / 2} color="#ffffff"/>
-        <directionalLight
-            color="#ffffff"
-            intensity={3.14 / 2.5}
-            position={new Vector3(0, -150, 0)}
-        />
-        <directionalLight
-            color="#ffffff"
-            intensity={4.7 / 2.5}
-            position={new Vector3(-200, 0, 0)}
-        />
-        <directionalLight
-            color="#ffffff"
-            intensity={4.7 / 2.5}
-            position={new Vector3(200, 0, 0)}
-        />
-        <directionalLight
-            color="#ffffff"
-            intensity={2.3 / 2.5}
-            position={new Vector3(0, 0, 200)}
-        />
+        {lights.map((light, index) => <LightObject light={light} key={index}/>)}
     </>
 }
 
 export function CameraController() {
     const dispatch = useAppDispatch()
+    const cameraState = useAppSelector((state: RootState) => state.camera)
     const cameraRef = useRef<OrthographicCameraType>(null)
+    const controlsRef = useRef<ArcballControlsImpl>(null)
+    const v3 = useRef(new Vector3())
+
+    const {controls, camera} = useThree()
+
+    useEffect(() => {
+        if (cameraState.controlUpdateRequired) {
+            if (!camera) return
+
+            const originWorld = camera.matrixWorldAutoUpdate
+            const origin = camera.matrixAutoUpdate
+            camera.matrixAutoUpdate = false
+            camera.matrixWorldAutoUpdate = false
+
+            camera.position.fromArray(cameraState.position)
+            camera.quaternion.fromArray(cameraState.quaternion as [number, number, number, number]);
+            camera.zoom = cameraState.zoom;
+            camera.up.copy(Object3D.DEFAULT_UP)
+            camera.updateProjectionMatrix();
+
+            camera.updateMatrix();
+            camera.updateMatrixWorld(true);
+
+            camera.matrixAutoUpdate = origin;
+            camera.matrixWorldAutoUpdate = originWorld;
+
+            controlsRef.current.reset()
+            // @ts-expect-error setCamera is not private in original three.js
+            controlsRef.current.setCamera(camera)
+        }
+    }, [camera, cameraState.controlUpdateRequired, cameraState.position, cameraState.quaternion, cameraState.zoom, controls]);
 
     return (
         <>
             <OrthographicCamera makeDefault ref={cameraRef} position={[0, 0, 150]} zoom={5}/>
-            <ArcballControls camera={cameraRef.current!} onChange={() => {
+            <ArcballControls makeDefault ref={controlsRef} camera={cameraRef.current!} onChange={() => {
                 const cam = cameraRef.current
                 if (!cam) return
+
+                camera.getWorldDirection(v3.current);
                 dispatch(updateCamera({
                     position: [cam.position.x, cam.position.y, cam.position.z],
                     quaternion: [cam.quaternion.x, cam.quaternion.y, cam.quaternion.z, cam.quaternion.w],
                     zoom: cam.zoom,
+                    worldDirection: v3.current.toArray()
                 }))
             }}/>
         </>
@@ -147,20 +301,42 @@ function SyncCameraFromStore() {
     const cameraState = useAppSelector((state: RootState) => state.camera)
     const {camera} = useThree()
 
-    useFrame(() => {
+    useEffect(() => {
+        if (!camera) return
+
+        const originWorld = camera.matrixWorldAutoUpdate
+        const origin = camera.matrixAutoUpdate
+        camera.matrixAutoUpdate = false
+        camera.matrixWorldAutoUpdate = false
+
         camera.position.fromArray(cameraState.position)
         camera.quaternion.fromArray(cameraState.quaternion as [number, number, number, number])
         camera.zoom = cameraState.zoom
         camera.updateProjectionMatrix()
-    })
+
+        camera.updateMatrix()
+        camera.updateMatrixWorld(true)
+
+        camera.matrixAutoUpdate = origin;
+        camera.matrixWorldAutoUpdate = originWorld;
+    }, [camera, cameraState]);
 
     return null
 }
 
-const Scene = ({path, loader}: { path: string, loader: LoaderType }) => {
+const Scene = ({path, loader, index, modelCache}: {
+    path: string,
+    loader: LoaderType,
+    index: number,
+    modelCache: Map<number, ModelCacheItem>
+}) => {
     useFrame(({gl, scene, camera}) => {
-        gl.clear(true, true, true)
-        gl.render(scene, camera)
+        try {
+            gl.clear(true, true, true)
+            gl.render(scene, camera)
+        } catch (e) {
+            console.error(e)
+        }
     })
 
     return <>
@@ -168,24 +344,31 @@ const Scene = ({path, loader}: { path: string, loader: LoaderType }) => {
         <SyncCameraFromStore/>
 
         <Suspense fallback={<Loader/>}>
-            <Model modelPath={path} loader={loader}/>
+            <Model index={index} modelPath={path} loader={loader} modelCache={modelCache}/>
         </Suspense>
     </>
 }
 
-const CopyCanvas = ({renderCanvas, proxyCanvas, size: {width, height}}: {
+const CopyCanvas = ({renderCanvas, proxyCanvas, monoCanvas, size: {width, height}, viewportSize}: {
     renderCanvas: HTMLCanvasElement,
     proxyCanvas: HTMLCanvasElement,
-    size: { width: number, height: number }
+    monoCanvas: HTMLCanvasElement,
+    size: { width: number, height: number },
+    viewportSize: { width: number, height: number }
 }) => {
     useFrame(() => {
-        if (!proxyCanvas || !renderCanvas) return
+        if (!proxyCanvas || !renderCanvas || !monoCanvas) return
 
         const ctx = proxyCanvas.getContext('2d')
         if (!ctx) return
 
         ctx.clearRect(0, 0, proxyCanvas.width, proxyCanvas.height)
         ctx.drawImage(renderCanvas, 0, 0, width, height, 0, 0, proxyCanvas.width, proxyCanvas.height);
+
+        const ctxMono = monoCanvas.getContext('2d')
+        if (!ctxMono) return
+        ctxMono.clearRect(0, 0, monoCanvas.width, monoCanvas.height)
+        ctxMono.drawImage(renderCanvas, 0, 0, viewportSize.width, viewportSize.height, 0, 0, monoCanvas.width, monoCanvas.height)
     })
 
     return null
@@ -199,7 +382,8 @@ const ModelRenderer: React.FC = () => {
         outputToWorkdir,
         outputFormat,
         outputQuality,
-        backgroundTransparent
+        backgroundTransparent,
+        renderScale
     } = useAppSelector((state: RootState) => state.controls.output);
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -208,11 +392,14 @@ const ModelRenderer: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
     const resultCanvasRef = useRef<HTMLCanvasElement>(null);
+    const monoCanvasRef = useRef<HTMLCanvasElement>(null);
 
     const canvasSize = useMemo(() => ({
-        width: viewportSize.width * (renderDirection === 'horizontal' ? selectedCandidates.length : 1) + (renderDirection === 'horizontal' ? gap * Math.max(0, selectedCandidates.length - 1) : 0),
-        height: viewportSize.height * (renderDirection === 'vertical' ? selectedCandidates.length : 1) + (renderDirection === 'vertical' ? gap * Math.max(0, selectedCandidates.length - 1) : 0)
-    }), [viewportSize, renderDirection, selectedCandidates, gap]);
+        width: renderScale * viewportSize.width * (renderDirection === 'horizontal' ? selectedCandidates.length : 1) + (renderDirection === 'horizontal' ? gap * Math.max(0, selectedCandidates.length - 1) : 0),
+        height: renderScale * viewportSize.height * (renderDirection === 'vertical' ? selectedCandidates.length : 1) + (renderDirection === 'vertical' ? gap * Math.max(0, selectedCandidates.length - 1) : 0)
+    }), [renderScale, viewportSize.width, viewportSize.height, renderDirection, selectedCandidates.length, gap]);
+
+    const modelCache = useRef<Map<number, ModelCacheItem>>(new Map<number, ModelCacheItem>())
 
     const capture = useCallback(async ({filename}: {
         filename: string
@@ -255,13 +442,8 @@ const ModelRenderer: React.FC = () => {
         return null
     }, [selectedFile]);
 
-    const scenes = useMemo(() => modelPaths.map((path) => (
-        <Scene path={path} loader={loader} key={path} />
-    )), [modelPaths, loader])
-
     useEffect(() => {
-        const captureListener = (msg: {filename: string}) => {
-            info(JSON.stringify(msg))
+        const captureListener = (msg: { filename: string }) => {
             const {filename} = msg
             capture({filename}).then(() => {
                 postMessage({
@@ -310,10 +492,13 @@ const ModelRenderer: React.FC = () => {
             width: '100%',
             height: '100%',
             display: 'flex',
+            flexDirection: renderDirection === 'horizontal' ? 'column' : 'row',
             justifyContent: 'center',
             alignItems: 'center',
             position: 'relative',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            padding: 16,
+            gap: 16
         }}>
 
         {/*<Button onClick={capture}>截图</Button>*/}
@@ -334,14 +519,15 @@ const ModelRenderer: React.FC = () => {
                     height: canvasSize.height,
                     position: 'fixed',
                     display: 'flex',
-                    gap: gap, justifyContent: 'center', alignItems: 'center'
+                    gap: gap, justifyContent: 'center', alignItems: 'center',
+                    flexDirection: renderDirection === 'horizontal' ? 'row' : 'column'
                 }}>
-                {modelPaths.map((_, index) => (
+                {modelPaths.map((path, index) => (
                     <View index={index + 1} key={index} style={{
-                        width: viewportSize.width,
-                        height: viewportSize.height
+                        width: viewportSize.width * renderScale,
+                        height: viewportSize.height * renderScale
                     }}>
-                        {scenes[index]}
+                        <Scene path={path} loader={loader} index={index} modelCache={modelCache.current}/>
                     </View>
                 ))}
             </div>
@@ -366,19 +552,35 @@ const ModelRenderer: React.FC = () => {
             >
                 {backgroundTransparent ? null : <color attach="background" args={[0xffffff]}/>}
                 <CameraController/>
-                <CopyCanvas renderCanvas={canvasRef.current} proxyCanvas={resultCanvasRef.current} size={canvasSize}/>
+                <CopyCanvas
+                    renderCanvas={canvasRef.current}
+                    proxyCanvas={resultCanvasRef.current}
+                    monoCanvas={monoCanvasRef.current}
+                    size={canvasSize}
+                    viewportSize={{
+                        width: viewportSize.width * renderScale,
+                        height: viewportSize.height * renderScale
+                    }}/>
 
                 <View.Port/>
             </Canvas>
         </div>
 
         <canvas ref={resultCanvasRef} width={canvasSize.width} height={canvasSize.height} style={{
-            maxWidth: '98%',
             height: 'auto',
-            boxShadow: "0 0 5px 0 #cccccc",
+            maxWidth: '100%',
+            maxHeight: '100%',
+            boxSizing: 'border-box',
+            boxShadow: "0 0 5px 0 #cccccc"
         }}/>
+
+        <canvas ref={monoCanvasRef} width={viewportSize.width * renderScale} height={viewportSize.height * renderScale}
+                style={{
+                    flex: 1,
+                    boxShadow: "0 0 5px 0 #cccccc"
+                }}/>
 
     </div>
 }
 
-export default ModelRenderer
+export default ModelRenderer;

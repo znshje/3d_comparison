@@ -5,13 +5,13 @@ import {RootState} from "@/lib/store";
 import {useAppDispatch, useAppSelector} from "@/lib/hooks";
 import {setState} from "@/lib/features/controls/controlsSlice";
 import {CaretRightOutlined} from "@ant-design/icons";
-import {debug} from "@tauri-apps/plugin-log";
+import LightsPanel from "@/app/_components/LightsPanel";
+import CameraPanel from "@/app/_components/CameraPanel";
+import MaterialPanel from "@/app/_components/MaterialPanel";
 
 const ViewportPanel: React.FC = () => {
-    const {selectedFile} = useAppSelector((state: RootState) => state.controls.files);
     const {viewportSize, gap} = useAppSelector((state: RootState) => state.controls.render);
     const dispatch = useAppDispatch()
-    debug(`selectedFile: ${selectedFile}`)
 
     return <div style={{
         display: 'flex',
@@ -47,17 +47,17 @@ const getPanelItems: (panelStyle: React.CSSProperties) => CollapseProps['items']
     }, {
         key: 'camera',
         label: '相机',
-        children: <div></div>,
+        children: <CameraPanel />,
         style: panelStyle
     }, {
         key: 'light',
         label: '灯光',
-        children: <div></div>,
+        children: <LightsPanel />,
         style: panelStyle
     }, {
         key: 'material',
         label: '材质',
-        children: <div></div>,
+        children: <MaterialPanel />,
         style: panelStyle
     }
 ]
