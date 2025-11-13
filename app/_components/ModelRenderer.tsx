@@ -351,9 +351,10 @@ const Scene = ({path, loader, index, modelCache}: {
     </>
 }
 
-const CopyCanvas = ({renderCanvas, proxyCanvas, monoCanvas, size: {width, height}, viewportSize}: {
+const CopyCanvas = ({renderCanvas, proxyCanvas, resultCanvas, monoCanvas, size: {width, height}, viewportSize}: {
     renderCanvas: HTMLCanvasElement,
     proxyCanvas: HTMLCanvasElement,
+    resultCanvas: HTMLCanvasElement,
     monoCanvas: HTMLCanvasElement,
     size: { width: number, height: number },
     viewportSize: { width: number, height: number }
@@ -361,13 +362,18 @@ const CopyCanvas = ({renderCanvas, proxyCanvas, monoCanvas, size: {width, height
     const {focusedCandidate, gap, renderDirection} = useAppSelector((state: RootState) => state.controls.render);
 
     useFrame(() => {
-        if (!proxyCanvas || !renderCanvas || !monoCanvas) return
+        if (!proxyCanvas || !renderCanvas || !monoCanvas || !resultCanvas) return
 
         const ctx = proxyCanvas.getContext('2d')
         if (!ctx) return
 
         ctx.clearRect(0, 0, proxyCanvas.width, proxyCanvas.height)
         ctx.drawImage(renderCanvas, 0, 0, width, height, 0, 0, proxyCanvas.width, proxyCanvas.height);
+
+        const ctxResult = resultCanvas.getContext('2d')
+        if (!ctxResult) return
+        ctxResult.clearRect(0, 0, resultCanvas.width, resultCanvas.height)
+        ctxResult.drawImage(renderCanvas, 0, 0, width, height, 0, 0, resultCanvas.width, resultCanvas.height);
 
         const ctxMono = monoCanvas.getContext('2d')
         if (!ctxMono) return
@@ -410,6 +416,7 @@ const ModelRenderer: React.FC = () => {
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
+    const previewCanvasRef = useRef<HTMLCanvasElement>(null);
     const resultCanvasRef = useRef<HTMLCanvasElement>(null);
     const monoCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -581,7 +588,8 @@ const ModelRenderer: React.FC = () => {
                 <CameraController/>
                 <CopyCanvas
                     renderCanvas={canvasRef.current}
-                    proxyCanvas={resultCanvasRef.current}
+                    proxyCanvas={previewCanvasRef.current}
+                    resultCanvas={resultCanvasRef.current}
                     monoCanvas={monoCanvasRef.current}
                     size={canvasSize}
                     viewportSize={{
@@ -595,12 +603,20 @@ const ModelRenderer: React.FC = () => {
 
         <div>
             <Typography.Text>输出预览</Typography.Text>
+            <canvas ref={previewCanvasRef} width={canvasSize.width} height={canvasSize.height} style={{
+                height: 'auto',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                boxSizing: 'border-box',
+                boxShadow: "0 0 5px 0 #cccccc",
+            }}/>
             <canvas ref={resultCanvasRef} width={canvasSize.width} height={canvasSize.height} style={{
                 height: 'auto',
                 maxWidth: '100%',
                 maxHeight: '100%',
                 boxSizing: 'border-box',
-                boxShadow: "0 0 5px 0 #cccccc"
+                boxShadow: "0 0 5px 0 #cccccc",
+                display: 'none'
             }}/>
         </div>
 
@@ -617,7 +633,9 @@ const ModelRenderer: React.FC = () => {
             <canvas ref={monoCanvasRef} width={viewportSize.width * renderScale} height={viewportSize.height * renderScale}
                     style={{
                         flex: 1,
-                        boxShadow: "0 0 5px 0 #cccccc"
+                        boxShadow: "0 0 5px 0 #cccccc",
+                        maxWidth: '50%',
+                        maxHeight: '50%'
                     }}
             />
         </div>
