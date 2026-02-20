@@ -1,20 +1,20 @@
-import {combineReducers, configureStore} from '@reduxjs/toolkit'
-import controlsSliceReducer from "./features/controls/controlsSlice";
-import cameraSliceReducer from "./features/camera/cameraSlice";
-import lightsSliceReducer from "./features/lights/lightsSlice";
-import materialSliceReducer from './features/material/materialSlice'
-import {path} from "@tauri-apps/api";
-import {readTextFile} from "@tauri-apps/plugin-fs";
+import { combineReducers, configureStore } from '@reduxjs/toolkit';
+import { path } from "@tauri-apps/api";
+import { join } from "@tauri-apps/api/path";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 import throttle from "lodash.throttle";
-import {join} from "@tauri-apps/api/path";
+import cameraSliceReducer from "./features/camera/cameraSlice";
+import controlsSliceReducer from "./features/controls/controlsSlice";
+import lightsSliceReducer from "./features/lights/lightsSlice";
+import materialSliceReducer from './features/material/materialSlice';
 
-import {initialState as controlsInitialState} from "./features/controls/controlsSlice";
-import {initialState as cameraInitialState} from "./features/camera/cameraSlice";
-import {initialState as lightsInitialState} from './features/lights/lightsSlice'
-import {initialState as materialInitialState} from './features/material/materialSlice'
+import { initialState as cameraInitialState } from "./features/camera/cameraSlice";
+import { initialState as controlsInitialState } from "./features/controls/controlsSlice";
+import { initialState as lightsInitialState } from './features/lights/lightsSlice';
+import { initialState as materialInitialState } from './features/material/materialSlice';
 
-import {invoke} from "@tauri-apps/api/core";
-import {error} from "@tauri-apps/plugin-log";
+import { invoke } from "@tauri-apps/api/core";
+import { error } from "@tauri-apps/plugin-log";
 
 const STATE_FILE = '3d_comparison_state.json'
 // 需要持久化的 slice
@@ -89,6 +89,7 @@ async function saveState(state: RootState) {
     try {
         const appDir = await path.appDataDir();
         const statePath = await join(appDir, STATE_FILE);
+        console.log("Saving state to:", statePath);
 
         const partial: Record<string, RootState[keyof RootState]> = {};
         for (const key of PERSISTED_KEYS) {

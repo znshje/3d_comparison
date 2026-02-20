@@ -1,34 +1,37 @@
 'use client'
 
-import {Canvas, useFrame, useThree} from "@react-three/fiber";
-import {useAppDispatch, useAppSelector} from "@/lib/hooks";
-import {RootState} from "@/lib/store";
-import {Suspense, useCallback, useEffect, useMemo, useRef, useState} from "react";
-import {
-    BufferGeometry,
-    Group,
-    LinearSRGBColorSpace,
-    NeutralToneMapping,
-    OrthographicCamera as OrthographicCameraType, DoubleSide, Vector3, Object3D, ObjectLoader,
-    Light
-} from "three";
-import {Html, OrthographicCamera, useProgress, View, ArcballControls} from "@react-three/drei";
-import {readFile, readTextFile, writeFile} from "@tauri-apps/plugin-fs";
-import {GLTFLoader, OBJLoader, STLLoader, PLYLoader, XYZLoader, GLTF, ArcballControls as ArcballControlsImpl} from "three-stdlib";
-import {useDebounceEffect} from "ahooks";
-import {join} from "@tauri-apps/api/path";
-import {disposeObject3D} from "@/app/_lib/disposeObject3D";
-import {updateCamera} from "@/lib/features/camera/cameraSlice";
-import {error, info} from "@tauri-apps/plugin-log";
-import {subscribe, unsubscribe} from "@/app/_lib/EventEmitter";
+import { disposeObject3D } from "@/app/_lib/disposeObject3D";
+import { subscribe, unsubscribe } from "@/app/_lib/EventEmitter";
+import { updateCamera } from "@/lib/features/camera/cameraSlice";
+import { setState } from "@/lib/features/controls/controlsSlice";
 import {
     DirectionalLightJSON,
     HemisphereLightJSON,
     LightParams, LightShadow,
     PointLightJSON, RectAreaLightJSON, SpotLightJSON
 } from "@/lib/features/lights/lightsSlice";
-import {Select, Typography} from "antd";
-import {setState} from "@/lib/features/controls/controlsSlice";
+import { useAppDispatch, useAppSelector } from "@/lib/hooks";
+import { RootState } from "@/lib/store";
+import { ArcballControls, Html, OrthographicCamera, useProgress, View } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { join } from "@tauri-apps/api/path";
+import { readFile, readTextFile, writeFile } from "@tauri-apps/plugin-fs";
+import { error, info } from "@tauri-apps/plugin-log";
+import { useDebounceEffect } from "ahooks";
+import { Select, Typography } from "antd";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    BufferGeometry,
+    DoubleSide,
+    Group,
+    Light,
+    LinearSRGBColorSpace,
+    NeutralToneMapping,
+    Object3D, ObjectLoader,
+    OrthographicCamera as OrthographicCameraType,
+    Vector3
+} from "three";
+import { ArcballControls as ArcballControlsImpl, GLTF, GLTFLoader, OBJLoader, PLYLoader, STLLoader, XYZLoader } from "three-stdlib";
 
 type AsciiLoaderType = OBJLoader | XYZLoader
 type BinaryLoaderType = GLTFLoader | STLLoader | PLYLoader
@@ -351,16 +354,16 @@ const Scene = ({path, loader, index, modelCache}: {
     </>
 }
 
-const CopyCanvas = ({renderCanvas, proxyCanvas, resultCanvas, monoCanvas, size: {width, height}, viewportSize}: {
+const CopyCanvas = ({renderCanvas, proxyCanvas, resultCanvas, monoCanvas, viewportSize}: {
     renderCanvas: HTMLCanvasElement,
     proxyCanvas: HTMLCanvasElement,
     resultCanvas: HTMLCanvasElement,
     monoCanvas: HTMLCanvasElement,
-    size: { width: number, height: number },
     viewportSize: { width: number, height: number }
 }) => {
     const {focusedCandidate, gap, renderDirection} = useAppSelector((state: RootState) => state.controls.render);
-
+    
+    console.log(proxyCanvas.width, proxyCanvas.height, resultCanvas.width, resultCanvas.height, monoCanvas.width, monoCanvas.height, renderCanvas.width, renderCanvas.height)
     useFrame(() => {
         if (!proxyCanvas || !renderCanvas || !monoCanvas || !resultCanvas) return
 
@@ -368,27 +371,29 @@ const CopyCanvas = ({renderCanvas, proxyCanvas, resultCanvas, monoCanvas, size: 
         if (!ctx) return
 
         ctx.clearRect(0, 0, proxyCanvas.width, proxyCanvas.height)
-        ctx.drawImage(renderCanvas, 0, 0, width, height, 0, 0, proxyCanvas.width, proxyCanvas.height);
+        ctx.drawImage(renderCanvas, 0, 0, renderCanvas.width, renderCanvas.height, 0, 0, proxyCanvas.width, proxyCanvas.height);
 
         const ctxResult = resultCanvas.getContext('2d')
         if (!ctxResult) return
         ctxResult.clearRect(0, 0, resultCanvas.width, resultCanvas.height)
-        ctxResult.drawImage(renderCanvas, 0, 0, width, height, 0, 0, resultCanvas.width, resultCanvas.height);
+        ctxResult.drawImage(renderCanvas, 0, 0, renderCanvas.width, renderCanvas.height, 0, 0, resultCanvas.width, resultCanvas.height);
 
         const ctxMono = monoCanvas.getContext('2d')
         if (!ctxMono) return
 
-        let sx: number, sy: number
+        let sx: number, sy: number, renderScale: number
         if (renderDirection === 'horizontal') {
             sx = Math.max(0, focusedCandidate * (viewportSize.width + gap))
             sy = 0
+            renderScale = renderCanvas.height / viewportSize.height
         } else {
             sx = 0
             sy = Math.max(0, focusedCandidate * (viewportSize.height + gap))
+            renderScale = renderCanvas.width / viewportSize.width
         }
 
         ctxMono.clearRect(0, 0, monoCanvas.width, monoCanvas.height)
-        ctxMono.drawImage(renderCanvas, sx, sy, viewportSize.width, viewportSize.height, 0, 0, monoCanvas.width, monoCanvas.height)
+        ctxMono.drawImage(renderCanvas, sx * renderScale, sy * renderScale, viewportSize.width * renderScale, viewportSize.height * renderScale, 0, 0, monoCanvas.width, monoCanvas.height)
 
         const lineWidth = viewportSize.width / 100
         ctx.lineWidth = lineWidth
@@ -579,8 +584,8 @@ const ModelRenderer: React.FC = () => {
                     position: 'fixed',
                     left: 0,
                     top: 0,
-                    minWidth: '100vw',
-                    minHeight: '100vh',
+                    // minWidth: '100vw',
+                    // minHeight: '100vh',
                     ...canvasSize
                 }}
             >
@@ -591,7 +596,6 @@ const ModelRenderer: React.FC = () => {
                     proxyCanvas={previewCanvasRef.current}
                     resultCanvas={resultCanvasRef.current}
                     monoCanvas={monoCanvasRef.current}
-                    size={canvasSize}
                     viewportSize={{
                         width: viewportSize.width * renderScale,
                         height: viewportSize.height * renderScale
@@ -620,7 +624,7 @@ const ModelRenderer: React.FC = () => {
             }}/>
         </div>
 
-        <div style={{}}>
+        <div style={{flex: 1}}>
             <div style={{display: 'flex'}}>
                 <Typography.Text style={{flex: 1}}>单视图调整</Typography.Text>
                 <Select variant="filled" options={selectedCandidates.map((candidate, index) => ({
@@ -634,8 +638,8 @@ const ModelRenderer: React.FC = () => {
                     style={{
                         flex: 1,
                         boxShadow: "0 0 5px 0 #cccccc",
-                        maxWidth: '50%',
-                        maxHeight: '50%'
+                        maxWidth: '100%',
+                        maxHeight: '100%'
                     }}
             />
         </div>

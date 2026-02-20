@@ -14,13 +14,13 @@
     "fs:allow-read-dir",
     "fs:allow-copy-file",
     "fs:allow-write",
-    "fs:allow-write-file",
     "fs:allow-write-text-file",
     "fs:allow-mkdir",
     "fs:allow-remove",
-    "fs:allow-remove",
     "fs:allow-rename",
     "fs:allow-exists",
+    "dialog:allow-open",
+    "dialog:default",
     {
       "identifier": "fs:scope",
       "allow": [
